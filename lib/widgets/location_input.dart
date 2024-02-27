@@ -1,8 +1,14 @@
+import 'dart:convert';
+
+import 'package:favorite_places/models/place.dart';
 import 'package:flutter/material.dart';
 import 'package:location/location.dart';
+import 'package:http/http.dart' as http;
 
 class LocationInput extends StatefulWidget {
-  const LocationInput({super.key});
+  const LocationInput({super.key, required this.onSelectLocation});
+
+  final void Function(PlaceLocation location) onSelectLocation;
   @override
   State<StatefulWidget> createState() {
     return _LocationInputState();
@@ -10,8 +16,18 @@ class LocationInput extends StatefulWidget {
 }
 
 class _LocationInputState extends State<LocationInput> {
-  Location? pickedLocation;
-  var _isGettingLocation = true;
+  PlaceLocation? _pickedLocation;
+  var _isGettingLocation = false;
+
+  String get locationImage {
+    if (_pickedLocation == null) {
+      return '';
+    }
+    final lat = _pickedLocation!.latitude;
+    final lon = _pickedLocation!.longitude;
+    return 'https://maps.geoapify.com/v1/staticmap?apiKey=f4f5e332ba554118aaad93ec4153450f&style=osm-bright&center=lonlat:$lon,$lat&width=800&height=600&marker=lonlat:$lon,$lat;color:%23ff0000';
+  }
+
   void _getCurrentLocation() async {
     Location location = Location();
 
@@ -40,16 +56,46 @@ class _LocationInputState extends State<LocationInput> {
     });
 
     locationData = await location.getLocation();
+    final lat = locationData.latitude;
+    final lon = locationData.longitude;
+    if (lat == null || lon == null) {
+      return;
+    }
+    final url = Uri.parse(
+        'https://nominatim.openstreetmap.org/reverse?lat=$lat&lon=$lon&format=jsonv2');
+    final response = await http.get(url);
+    final data = json.decode(response.body);
+    final address = data['address']['road'];
+    _pickedLocation =
+        PlaceLocation(latitude: lat, longitude: lon, address: address);
 
     setState(() {
-      _isGettingLocation = true;
+      _isGettingLocation = false;
     });
-    print(locationData.latitude);
-    print(locationData.longitude);
+    widget.onSelectLocation(_pickedLocation!);
   }
 
   @override
   Widget build(BuildContext context) {
+    Widget previewContent = Text(
+      'No location selected',
+      textAlign: TextAlign.center,
+      style: Theme.of(context)
+          .textTheme
+          .bodyLarge!
+          .copyWith(color: Theme.of(context).colorScheme.onBackground),
+    );
+    if (_pickedLocation != null) {
+      previewContent = Image.network(
+        locationImage,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        height: double.infinity,
+      );
+    }
+    if (_isGettingLocation) {
+      previewContent = const CircularProgressIndicator();
+    }
     return Column(
       children: [
         Container(
@@ -62,20 +108,13 @@ class _LocationInputState extends State<LocationInput> {
               color: Theme.of(context).colorScheme.primary.withOpacity(0.2),
             ),
           ),
-          child: Text(
-            'No location selected',
-            textAlign: TextAlign.center,
-            style: Theme.of(context)
-                .textTheme
-                .bodyLarge!
-                .copyWith(color: Theme.of(context).colorScheme.onBackground),
-          ),
+          child: previewContent,
         ),
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             TextButton.icon(
-              onPressed: () {},
+              onPressed: _getCurrentLocation,
               icon: const Icon(Icons.location_on),
               label: const Text('Get Current Location'),
             ),
